@@ -1,0 +1,164 @@
+---
+title: "Projecte de millora de l'eficiencia del fred a Euromed"
+author: Arnau Coronado
+lang: ca
+date: today
+format:
+  arnau-pdf:
+    keep-tex: true
+    titlepage-rule-color: 14612c
+    table-rule-color: 14612C
+    table-font-size: \fontsize{6.5pt}{7.5pt}\selectfont
+titlepage-text-color: '000000'
+header-left: Euromed S.A.
+csl: _extensions/arnau-informe/ieee.csl
+reference-section-title: Referencies
+execute:
+  echo: false
+  output: true
+  warning: false
+  message: false
+jupyter: python3
+---
+
+# Introducció
+
+Euromed, S.A. és una empresa industrial amb seu a Mollet del Vallès (Barcelona), especialitzada en el desenvolupament i producció d’extractes botànics per a la indústria farmacèutica, nutracèutica i alimentària. L’empresa forma part del grup Euromed [@Euromed2024], amb presència internacional i orientació a mercats europeus, americans i asiàtics.
+
+La companyia disposa d’instal·lacions industrials avançades amb processos d’extracció, purificació i assecat [@Euromed2024], que impliquen l’ús intensiu de fluids tèrmics, aigua de procés i sistemes auxiliars. Aquestes instal·lacions requereixen un control rigorós dels paràmetres operatius per garantir tant la qualitat del producte com l’eficiència energètica.
+
+Des del punt de vista operatiu, la planta integra múltiples circuits de fluids (aigua calenta, aigua freda, vapor, etc.) que intervenen directament en els processos productius. El control dels cabals en aquests circuits és un factor crític per a l’optimització del consum energètic i la detecció de possibles desviacions operatives.
+
+# Antecedents
+
+Aquest projecte actual es la suma (o desembocadura) de dos projectes exectuats des de la primavera de 2025. A continuació es resumiran els resultats obtinguts en aquests estudis.
+
+## Projecte "Remodelació circuits de fred" de DeDietrich
+
+En primer lloc, per tenir una visió global de l'estat dels circuits, el projecte va actualitzar els PI&Ds del circuit d'aigua de torres i aigua refrigerada de la fabrica. D'altra banda va fer una taula de tots els equips consumidors de fred i els seus paràmetres (valum, cabal, temperatures, etc.).
+
+A la memòria del projecte es descriu l'estudi realitzat i es proposen diferents solucions:
+
+- 
+
+
+## Projecte SuperSònic
+
+```{python}
+import sqlite3
+import pandas as pd
+import numpy as np
+
+conn = sqlite3.connect("C:/Users/ArnauCoronado/Documents_local/euromed/fluxus_serial/database/database.db")
+```
+
+```{python}
+#| include: false
+
+df = pd.read_sql_query("""
+    SELECT
+        s.session_id,
+        s.record_date,
+        s.measurement_point,
+        s.instrument_median_measure AS measure
+    FROM sessions AS s
+    WHERE s.record_date IS NOT NULL
+      AND s.measurement_point IS NOT NULL
+""", conn)
+
+df = df.round(2)
+
+# Normalize date
+df["date"] = pd.to_datetime(
+    df["record_date"],
+    format="%d.%m.%Y",
+    errors="coerce"
+).dt.date
+
+# Check for multiple measurements at the same point on the same day
+duplicates = (
+    df.groupby(["date", "measurement_point"])
+      .size()
+      .reset_index(name="count")
+)
+
+duplicates = duplicates[duplicates["count"] > 1]
+
+if not duplicates.empty:
+    print("WARNING: Multiple measurements found:")
+    print(duplicates.to_string(index=False))
+else:
+    print("No duplicate measurement points found.")
+
+# Keep only the largest measurement for each date + point
+df = (
+    df.groupby(
+        ["date", "measurement_point"],
+        as_index=False
+    )["measure"]
+    .max()
+)
+
+# Create pivot table
+pivot = (
+    df.pivot(
+        index="date",
+        columns="measurement_point",
+        values="measure"
+    )
+    .sort_index()
+)
+print(pivot)
+```
+
+```{python}
+names = ["1181", "1182", "1191", "1192", "3900.01", "4700.01", "3100.01", "14.15"]
+for name in names:
+    base = pivot.get(name, pd.Series(np.nan, index=pivot.index))
+    rt = -pivot.get(f"{name}_RT", pd.Series(np.nan, index=pivot.index))
+
+    pivot[f"{name}_abs"] = rt
+    pivot[f"{name}_max"] = pd.concat([base, rt], axis=1).max(axis=1)
+
+pivot["04.05"] = pivot["3100.01_max"].fillna(0) + pivot["05.06"] 
+
+bombes = ["8104", "8105", "8106", "8107", "8108"]
+
+# pivot["num. bombes"] = pivot[bombes].replace(0, pd.NA).count(axis=1)
+pivot["avg. bombes"] = pivot[bombes].replace(0, pd.NA).mean(axis=1)
+pivot["suma bombes"] = pivot[bombes].fillna(0).sum(axis=1)
+
+pivot["num. bombes"] = np.select(
+    [
+        pivot["04.05"] < 795,
+        (pivot["04.05"] > 795) & (pivot["04.05"] < 895),
+        pivot["04.05"] > 895
+    ],
+    [3, 4, 5],
+    default=np.nan
+)
+
+pivot["01.04"] = pivot["num. bombes"]*pivot["avg. bombes"]
+
+pivot["Nautas"] = pivot["avg. bombes"]*pivot["num. bombes"] - pivot["04.05"]
+
+pivot["06.22"] = pivot["05.06"] - pivot["06.07"]
+
+pivot["06.10"] = pivot["06.07"].copy()
+
+pivot["5701"] = pivot["06.07"] - pivot["10.11"] - (pivot["3900.01_max"] + pivot["1120"].fillna(0) + pivot["4700.01_max"])
+pivot["3800.01"] = pivot["3801"].fillna(0) + pivot["3806"]
+pivot["31001"] = pivot["3900.01_max"] - pivot["3900.02"]
+pivot["3901"] = pivot["3900.02"] - pivot["3900.03"]
+
+pivot["11.19"] = pivot["10.11"] - pivot["14.15_max"].fillna(0)
+pivot["sil-pel"] = pivot["11.19"] - pivot["3801"] -pivot["3806"]
+
+pivot["11.15"] = pivot["14.15_max"].copy()
+```
+
+# Actuacions
+
+# Resultats
+
+# Conclusions

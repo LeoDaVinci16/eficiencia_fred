@@ -1,6 +1,6 @@
 # .gitignore
 
-.pdf
-.png
-.jpeg
+*.pdf
+*.png
+*.jpeg
 
