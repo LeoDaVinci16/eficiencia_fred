@@ -4,14 +4,14 @@ author: Arnau Coronado
 lang: ca
 date: today
 format:
-  arnau-pdf:
+  eisvogel-pdf:
     keep-tex: true
     titlepage-rule-color: 14612c
     table-rule-color: 14612C
     table-font-size: \fontsize{6.5pt}{7.5pt}\selectfont
 titlepage-text-color: '000000'
 header-left: Euromed S.A.
-csl: _extensions/arnau-informe/ieee.csl
+csl: _extensions/eisvogel/ieee.csl
 reference-section-title: Referencies
 execute:
   echo: false
@@ -35,14 +35,17 @@ Aquest projecte actual es la suma (o desembocadura) de dos projectes exectuats d
 
 ## Projecte "Remodelació circuits de fred" de DeDietrich
 
-En primer lloc, per tenir una visió global de l'estat dels circuits, el projecte va actualitzar els PI&Ds del circuit d'aigua de torres i aigua refrigerada de la fabrica. D'altra banda va fer una taula de tots els equips consumidors de fred i els seus paràmetres (valum, cabal, temperatures, etc.).
+El projecte de De Dietrich va tenir com a objectiu obtenir una visió conjunta dels circuits de fred de la fàbrica i identificar oportunitats per millorar-ne el funcionament. La documentació recollida a la carpeta `DDIB` constitueix la base de l'estudi i inclou la revisió i actualització dels diagrames de canonades i instrumentació (P&ID) dels circuits d'aigua de torres i d'aigua refrigerada.
 
-A la memòria del projecte es descriu l'estudi realitzat i es proposen diferents solucions:
+L'estudi també va inventariar els equips que consumeixen fred i va reunir, per a cada equip, les dades disponibles de volum, cabal i temperatures. Això permet relacionar els diferents consumidors amb els circuits que els abasteixen, entendre com es distribueix l'aigua i disposar d'una referència comuna per analitzar possibles desequilibris o limitacions de servei.
 
-- 
-
+Partint d'aquesta representació de la instal·lació i de les dades dels equips, De Dietrich va plantejar diverses alternatives d'actuació. Aquestes propostes s'han de llegir en el context i amb els condicionants descrits als documents de `DDIB`; no totes necessàriament es van executar. El treball va servir, sobretot, per establir una diagnosi i orientar les decisions posteriors sobre els circuits. El projecte SuperSònic complementa aquest estudi amb mesures de cabal reals, que permeten contrastar les hipòtesis i valorar les millores proposades.
 
 ## Projecte SuperSònic
+
+El projecte SuperSònic acompanya la inversió en un cabalímetre ultrasònic no invasiu FLUXUS G608, de FLEXIM. Té com a objectiu mesurar el cabal en diversos punts dels circuits de fred de la fàbrica i obtenir dades reals del seu funcionament. El treball parteix de l'estudi de De Dietrich, que aporta el coneixement dels circuits i dels seus consumidors; les mesures de SuperSònic, al seu torn, permeten contrastar les hipòtesis plantejades i valorar les millores proposades.
+
+Les dades es consulten a la base de dades del projecte i s'organitzen per data i punt de mesura. Si hi ha més d'una lectura per al mateix punt i dia, el tractament actual conserva el valor màxim. A partir de les lectures també es calculen alguns cabals derivats, emprant relacions entre punts de mesura i una estimació del nombre de bombes en servei. En l'anàlisi dels resultats, per tant, cal diferenciar les mesures directes del cabalímetre dels valors calculats i tenir en compte els supòsits utilitzats en aquests càlculs.
 
 ```{python}
 import sqlite3
@@ -108,6 +111,7 @@ pivot = (
     )
     .sort_index()
 )
+direct_measurement_points = pivot.columns.tolist()
 print(pivot)
 ```
 
@@ -157,8 +161,172 @@ pivot["sil-pel"] = pivot["11.19"] - pivot["3801"] -pivot["3806"]
 pivot["11.15"] = pivot["14.15_max"].copy()
 ```
 
+### Resultats destacats de SuperSònic
+
+El resum següent es genera a partir de les lectures disponibles a la base de dades. La primera taula recull punts mesurats directament; la segona, indicadors calculats a partir de les relacions i supòsits descrits anteriorment. Els valors són cabals en les unitats registrades pel sistema.
+
+```{python}
+# Resum de les mesures directes i dels indicadors calculats
+if not pivot.empty:
+    print(f"Període analitzat: {pivot.index.min()} – {pivot.index.max()}")
+    print(f"Dies amb dades: {pivot.index.nunique()}")
+
+direct = pivot[direct_measurement_points].apply(pd.to_numeric, errors="coerce")
+direct_summary = (
+    direct.agg(["count", "median", "max"])
+    .T.rename(columns={"count": "Dies amb lectura", "median": "Mediana", "max": "Màxim"})
+    .dropna(subset=["Mediana"])
+    .sort_values("Mediana", ascending=False)
+    .head(5)
+    .round(2)
+)
+print("Punts de mesura directa amb les medianes més elevades:")
+display(direct_summary)
+
+calculated_columns = [
+    "04.05", "01.04", "Nautas", "06.22", "06.10", "5701",
+    "3800.01", "31001", "3901", "11.19", "sil-pel", "11.15"
+]
+available_calculated = [column for column in calculated_columns if column in pivot.columns]
+if available_calculated:
+    calculated = pivot[available_calculated].apply(pd.to_numeric, errors="coerce")
+    calculated_summary = (
+        calculated.agg(["count", "median", "max", "min"])
+        .T.rename(columns={"count": "Dies amb valor", "median": "Mediana", "max": "Màxim", "min": "Mínim"})
+        .dropna(subset=["Mediana"])
+        .round(2)
+    )
+    print("Indicadors calculats (no són lectures directes del cabalímetre):")
+    display(calculated_summary)
+```
+
 # Actuacions
 
+## Incendi edifici de la E-700
+
+El calendari de les actuacions ha estat marcat per l'incendi que es va produir la matinada de l'11 d'abril de 2026 a la fàbrica. L'incendi va cremar les tres plantes de l'edifici que contenia la planta E-700 i les columnes R-150 i R-450. El circuit de fred que anava a aquesta zona de la fabrica es va anular; reduint així el consum de fred global i augmentant el cabal per la resta de consumidors.
+
+Algunes de les actuacions proposades per DeDietrich que se centraven en aquesta zona de la fabrica (que tenia un dèficit de pressió ja que els condensadors estaven situats a molta alçada) van quedar desestimades i ara la prioritat és la reconstrucció de les plantes malmeses i incloure les millores a la fase de disseny.
+
+## Vàlvules E-800, E900 i E-1000
+
+El dia 21 d'octubre de 2026 es va posar en funcionament les valvules de la planta E-800, per avaluar-ne el funcionament i, posteriorment, activar també les de la E900/E1000.
+
+Les vàlvules tallen el pas d'aigua de refrigeració als condensadors durant les fases de treball que no requereixen fred. S'espera que, mentre la vàlvula d'un equip estigui tancada, el cabal que hi deixa de circular es redistribueixi per la xarxa i millori el cabal disponible per a la resta d'equips.
+
+- Fases evaporador
+  - Posar en buit
+  - Posar a pressió atmosfèrica
+  - Evaporació a pressió atmosfèrica
+  - Evaporació en buit
+  - Concentració en buit
+  - Buidat evaporador
+
+| Fases de treball                 | Valvula oberta/tancada |
+|----------------------------------|------------------------|
+| Posar en buit                    | Oberta                 |
+| Posar a pressió atmosfèrica      | Oberta                 |
+| Evaporació a pressió atmosfèrica | Oberta                 |
+| Evaporació en buit               | Oberta                 |
+| Concentració en buit             | Oberta                 |
+| Buidat evaporador                | Tancada                |
+
+- Fases extractor
+  - Inertització amb nitrogen
+  - Posar al buit
+  - Posar a pressió atmosfèrica
+  - Càrrega de sòlids
+  - Càrrega de dissolvent
+  - Extracció
+  - Filtració sota pressió
+  - Assecat a pressió atmosfèrica
+  - Assecat al buit
+  - Descarrega residus
+
+| Fases de treball              | Valvula oberta/tancada |
+|-------------------------------|------------------------|
+| Inertització amb nitrogen     | Tancada                |
+| Posar al buit                 | Oberta                 |
+| Posar a pressió atmosfèrica   | Oberta                 |
+| Càrrega de sòlids             | Tancada                |
+| Càrrega de dissolvent         | Tancada                |
+| Extracció                     | Oberta                 |
+| Filtració sota pressió        | Tancada                |
+| Assecat a pressió atmosfèrica | Oberta                 |
+| Assecat al buit               | Oberta                 |
+| Descarrega residus            | Tancada                |
+
+
+## Variadors de freqüencia
+
+L'altra actuació que s'ha executat és la instal·lació de variadors de freqüència a les bombes de l'aigua freda i els ventiladors de les torres. Aquesta actuació permet ajustar el cabal de les bombes a la demanda real del sistema i la potència de les torres a la temperatura de l'aigua, millorant així l'eficiència energètica i reduint el consum d'electricitat.
+
 # Resultats
+
+## Avaluacio de les valvules E-800, E900 i E-1000
+
+Per avaluar les vàlvules de la E-800 s'ha mesurat el cabal al punt 3806, a l'entrada del condensador de l'evaporador (E-806), amb el cabalímetre FLUXUS G608. El registre va del 30.10.2026 a les 14:00 fins al 31.10.2026 a les 17:05 (27,1 h, una lectura per minut) i s'ha comparat amb la fase en curs de l'evaporador i de l'extractor registrada al SCADA. L'extractor és al costat de l'evaporador, té el seu propi condensador i la seva pròpia vàlvula, i està connectat a la mateixa xarxa. A les figures, la fase de cada equip es mostra com a franja de color darrere la corba de cabal.
+
+![Cabal al punt 3806 (condensador E-806) i fase en curs de l'evaporador de la E-800.](figures/combined/flow_3806_evapora.png){#fig-flow-3806-evapora}
+
+![Cabal al punt 3806 (condensador E-806) i fase en curs de l'extractor de la E-800.](figures/combined/flow_3806_extract.png){#fig-flow-3806-extract}
+
+El cabal només adopta tres nivells: 0, 80,8 ± 2,4 m³/h i 101,7 ± 2,7 m³/h (mitjana ± desviació estàndard). La @tbl-cabal-estat-valvules mostra quin nivell es dona en cada combinació d'estats de les dues vàlvules. L'estat de cada vàlvula s'ha deduït de la fase en curs segons les taules de l'apartat d'actuacions. La fase 7 de l'evaporador, en què el cabal és sempre nul, s'ha comptat com a vàlvula tancada.
+
+| Vàlvula evaporador | Vàlvula extractor | Temps (h) | % del període | 0 m³/h | ≈ 80 m³/h | ≈ 100 m³/h | Cabal mitjà (m³/h) | Volum (m³) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Oberta | Oberta | 7,1 | 26,2 % | 0,2 % | 98,4 % | 1,4 % | 81,1 | 575 |
+| Oberta | Tancada | 9,3 | 34,3 % | 12,6 % | 17,4 % | 70,0 % | 85,4 | 792 |
+| Tancada | Oberta | 2,0 | 7,5 % | 80,3 % | 19,7 % | 0,0 % | 15,6 | 32 |
+| Tancada | Tancada | 8,7 | 32,0 % | 96,0 % | 0,0 % | 4,0 % | 4,3 | 37 |
+| **Total** | | **27,1** | **100 %** | **41,1 %** | **33,2 %** | **25,6 %** | **53,0** | **1.436** |
+
+: Cabal al punt 3806 segons l'estat de les vàlvules de l'evaporador i de l'extractor (30–31.10.2026). Els percentatges de nivell de cabal són sobre el temps de cada fila. {#tbl-cabal-estat-valvules}
+
+De la taula se'n desprèn el següent:
+
+- **Vàlvula de l'evaporador tancada.** El cabal és nul la major part del temps (el 96 % quan l'extractor també està tancat). Gairebé tot el temps restant correspon als minuts que segueixen cada tancament, a causa del retard descrit més avall. En total, el condensador de l'evaporador va estar sense cabal un 41 % del període (11,2 h), mentre l'extractor continuava treballant. En les 10,7 h amb la vàlvula de l'evaporador tancada, el condensador només va rebre 69 m³, el 5 % del volum total.
+- **Les dues vàlvules obertes.** El cabal és estable a 80 m³/h (98,4 % del temps). Aquest és el cabal de referència del condensador de l'evaporador.
+- **Vàlvula de l'evaporador oberta i vàlvula de l'extractor tancada.** El cabal puja a 100 m³/h (70 % del temps), un augment d'uns 21 m³/h (+26 %). El 17 % del temps a 80 m³/h correspon sobretot al retard de tancament de la vàlvula de l'extractor.
+
+Aquest augment no vol dir que tot el cabal que deixa de passar pel condensador de l'extractor vagi al de l'evaporador. En tancar un ramal canvia la corba resistent de la xarxa, i el cabal alliberat es reparteix entre tots els consumidors que continuen oberts. És d'esperar que el més beneficiat sigui el més proper, en aquest cas l'evaporador, però els 21 m³/h en són només una part (vegeu la comparativa amb el condensador de l'extractor més avall). Quan les dues vàlvules estan tancades, tot el cabal es redistribueix cap a la resta de la fàbrica.
+
+La @tbl-temps-resposta mostra el temps que triga el cabal a respondre després de cada maniobra de vàlvula.
+
+| Maniobra | Esdeveniments | Temps de resposta | Nivell resultant |
+|---|---:|---:|---|
+| Obertura de la vàlvula de l'evaporador | 3 | 1,0 – 1,5 min | 80 m³/h |
+| Tancament de la vàlvula de l'evaporador | 3 | 11,1 – 12,0 min | 0 m³/h |
+| Obertura de la vàlvula de l'extractor (evaporador en servei) | 7 | 0,8 – 1,9 min | 80 m³/h |
+| Tancament de la vàlvula de l'extractor (evaporador en servei) | 7 | 10,9 – 11,4 min | 100 m³/h |
+
+: Temps de resposta del cabal al punt 3806 després de cada maniobra de vàlvula (resolució ±1 min). {#tbl-temps-resposta}
+
+La resposta és molt reproduïble: les vàlvules obren en uns 1–2 minuts i tanquen sistemàticament uns 11 minuts després del canvi de fase. Això apunta a una temporització programada al tancament o a un actuador lent. Aquest comportament evita maniobres curtes, però allarga la circulació d'aigua després de cada fase que no requereix fred, i convé verificar-lo a la configuració de l'automatisme. Només hi ha dues anomalies puntuals. El 31.10 a les 02:30 el cabal passa a ser nul en plena fase 4 de l'evaporador, sense cap canvi de fase. El 31.10, entre les 06:48 i les 06:58, hi ha un cabal de 100 m³/h amb l'evaporador sense demanda.
+
+El 04.11.2026, de 16:44 a 19:40 (2,9 h, una lectura per segon), es va mesurar també el cabal al punt 3801, a l'entrada del condensador de l'extractor (@fig-flow-3801). El cabal torna a adoptar tres nivells discrets: 0 m³/h (0,2 h), 29,8 ± 0,6 m³/h (2,1 h) i 61,0 ± 1,1 m³/h (0,6 h). L'exportació del SCADA disponible acaba el 03.11, de manera que per a aquest registre no es coneix la fase de cada equip. Per analogia amb el punt 3806, s'interpreta que el nivell de 0 m³/h correspon a la vàlvula de l'extractor tancada, el de 30 m³/h a les dues vàlvules obertes i el de 60 m³/h a la vàlvula de l'extractor oberta amb la de l'evaporador tancada.
+
+![Cabal al punt 3801 (condensador de l'extractor de la E-800), 04.11.2026.](figures/supersonic/3801_88.9mm_2026-11-04.png){#fig-flow-3801}
+
+| Condensador | Punt | Vàlvula pròpia tancada | Vàlvula pròpia oberta, homòloga oberta | Vàlvula pròpia oberta, homòloga tancada | Increment |
+|---|---|---:|---:|---:|---:|
+| Evaporador (E-806) | 3806 | 0 | 80,8 | 101,7 | +20,9 (+26 %) |
+| Extractor | 3801 | 0 | 29,8 | 61,0 | +31,2 (+105 %) |
+
+: Cabal (m³/h) als condensadors de l'evaporador i de l'extractor de la E-800 segons l'estat de la seva vàlvula i de la vàlvula de l'equip homòleg. Les mesures dels dos punts són de dies diferents. {#tbl-comparativa-condensadors}
+
+La @tbl-comparativa-condensadors confirma el mateix comportament als dos condensadors. Cada vàlvula talla completament el pas d'aigua quan el seu equip no necessita fred. Quan la vàlvula homòloga tanca, el cabal augmenta clarament, i en termes relatius l'augment és molt més gran a l'extractor, que duplica el seu cabal. Els valors també permeten estimar quina part del cabal alliberat aprofita l'equip veí:
+
+- Quan tanca l'extractor deixen de circular-hi uns 30 m³/h, i l'evaporador en guanya 21 (≈ 70 %).
+- Quan tanca l'evaporador deixen de circular-hi uns 81 m³/h, i l'extractor en guanya 31 (≈ 38 %).
+
+La resta es reparteix per la xarxa. Aquesta estimació és aproximada, perquè els dos punts es van mesurar en dies diferents i l'estat de la resta de la xarxa (bombes en servei i altres consumidors) podia ser diferent.
+
+En conclusió, les vàlvules de la E-800 funcionen d'acord amb la lògica de fases definida. Cada condensador només rep aigua quan el procés la necessita, i el cabal que no circula per la E-800 queda disponible per a la resta de la xarxa. Per confirmar la interpretació del punt 3801 i saber on va exactament el cabal alliberat, caldria mesurar simultàniament els dos condensadors i el col·lector principal, amb l'exportació del SCADA del mateix període. L'avaluació es repetirà quan s'activin les vàlvules de la E-900 i la E-1000.
+
+
+
+
+
 
 # Conclusions
